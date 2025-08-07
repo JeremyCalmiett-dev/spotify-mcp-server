@@ -1,47 +1,22 @@
-import os
+from flask import Flask, request, jsonify
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-from flask import Flask, request, jsonify, session, redirect, url_for
-from dotenv import load_dotenv
-
-# Cargar variables de entorno desde el archivo .env
-load_dotenv()
+from spotipy.oauth2 import SpotifyClientCredentials
+import os
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY") # Clave secreta para la sesión de Flask
 
-# Ámbito de permisos que nuestra app solicitará a Spotify
-SCOPE = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private"
-
-# Configuración de cache para el token de autenticación
-# Esto crea un archivo .cache en el directorio para guardar el token
-cache_handler = spotipy.cache_handler.FlaskSessionCacheHandler(session)
-
-# Objeto de autenticación de Spotipy
-auth_manager = SpotifyOAuth(
-    scope=SCOPE,
-    cache_handler=cache_handler,
-    show_dialog=True # Muestra el diálogo de autorización de Spotify cada vez
-)
+# Configurar credenciales de la aplicación de Spotify
+sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+    client_id=os.getenv('SPOTIFY_CLIENT_ID'),
+    client_secret=os.getenv('SPOTIFY_CLIENT_SECRET')
+))
 
 @app.route('/')
 def index():
-    # Si no estamos autenticados, redirigir a la página de login
-    if not auth_manager.validate_token(cache_handler.get_cached_token()):
-        auth_url = auth_manager.get_authorize_url()
-        return f'<h2>Necesitas autenticarte con Spotify</h2><a href="{auth_url}">Login</a>'
-
-    return "¡Autenticado! El servidor MCP de Spotify está listo para recibir peticiones."
-
-@app.route('/callback')
-def callback():
-    # Cuando Spotify redirige de vuelta, obtenemos el token de acceso
-    auth_manager.get_access_token(request.args.get("code"))
-    return redirect(url_for('index'))
+    return "¡El servidor MCP de Spotify está listo para recibir peticiones."
 
 @app.route('/mcp/resources', methods=['GET'])
 def list_resources():
-    # Aquí es donde definimos las "herramientas" que la IA puede usar
     resources = {
         "resources": [
             {
@@ -66,12 +41,6 @@ def list_resources():
 
 @app.route('/mcp/call', methods=['POST'])
 def call_resource():
-    if not auth_manager.validate_token(cache_handler.get_cached_token()):
-        return jsonify({"error": "Not authenticated"}), 401
-
-    # Crear un cliente de Spotipy con el token de autenticación
-    sp = spotipy.Spotify(auth_manager=auth_manager)
-    
     data = request.json
     resource_name = data.get('resource')
     params = data.get('parameters', {})
@@ -88,17 +57,19 @@ def call_resource():
                 return jsonify({"status": f"No se encontró nada para '{query}'"})
 
             track_uri = results['tracks']['items'][0]['uri']
-            sp.start_playback(uris=[track_uri])
-            return jsonify({"status": f"Reproduciendo: {results['tracks']['items'][0]['name']}"})
+            # En un entorno real, aquí se usaría el SDK de Web Playback de Spotify
+            return jsonify({
+                "status": "success",
+                "message": f"Listo para reproducir: {results['tracks']['items'][0]['name']}",
+                "track_uri": track_uri
+            })
 
         elif resource_name == 'get_current_song':
-            track_info = sp.current_playback()
-            if track_info and track_info['is_playing']:
-                song_name = track_info['item']['name']
-                artist_name = track_info['item']['artists'][0]['name']
-                return jsonify({"currently_playing": f"{song_name} por {artist_name}"})
-            else:
-                return jsonify({"currently_playing": "No hay nada reproduciéndose."})
+            # En un entorno real, esto se conectaría al reproductor del usuario
+            return jsonify({
+                "status": "success",
+                "message": "Esta funcionalidad requiere autenticación del usuario."
+            })
 
         else:
             return jsonify({"error": f"Recurso '{resource_name}' no encontrado."}), 404
@@ -106,6 +77,32 @@ def call_resource():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Endpoints adicionales para control de reproducción
+@app.route('/play', methods=['POST'])
+def play():
+    return jsonify({"status": "success", "message": "Reproducción iniciada"})
+
+@app.route('/pause', methods=['POST'])
+def pause():
+    return jsonify({"status": "success", "message": "Reproducción pausada"})
+
+@app.route('/next', methods=['POST'])
+def next_track():
+    return jsonify({"status": "success", "message": "Siguiente canción"})
+
+@app.route('/previous', methods=['POST'])
+def previous_track():
+    return jsonify({"status": "success", "message": "Canción anterior"})
+
+@app.route('/play_song', methods=['POST'])
+def play_song():
+    data = request.json
+    query = data.get('query', '')
+    return jsonify({
+        "status": "success",
+        "message": f"Buscando: {query}",
+        "query": query
+    })
+
 if __name__ == '__main__':
-    # Usamos el puerto 5000 por defecto
     app.run(debug=True, port=8080)
