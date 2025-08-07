@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Clave secreta para la sesión de Flask
+app.secret_key = os.getenv("FLASK_SECRET_KEY") # Clave secreta para la sesión de Flask
 
 # Ámbito de permisos que nuestra app solicitará a Spotify
 SCOPE = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private"
