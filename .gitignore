@@ -1,0 +1,13 @@
+# Archivos de entorno
+.env
+
+# Archivos de caché de Python
+__pycache__/
+*.pyc
+
+# Archivo de caché de Spotipy
+.cache
+
+# Archivos de entorno virtual
+/venv
+/.venv
