@@ -2,16 +2,41 @@ from flask import Flask, request, jsonify, make_response
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import os
+import sys
 import uuid
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, Optional, Tuple
 
-app = Flask(__name__)
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Configurar credenciales de la aplicación de Spotify
-sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-    client_id=os.getenv('SPOTIFY_CLIENT_ID'),
-    client_secret=os.getenv('SPOTIFY_CLIENT_SECRET')
-))
+def create_app():
+    app = Flask(__name__)
+    
+    # Verificar variables de entorno
+    client_id = os.getenv('SPOTIFY_CLIENT_ID')
+    client_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
+    
+    if not client_id or not client_secret:
+        logger.error("Faltan las variables de entorno SPOTIFY_CLIENT_ID o SPOTIFY_CLIENT_SECRET")
+        sys.exit(1)
+    
+    # Configurar Spotify
+    try:
+        auth_manager = SpotifyClientCredentials(
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        app.config['spotify'] = spotipy.Spotify(auth_manager=auth_manager)
+        logger.info("Spotify client configurado correctamente")
+    except Exception as e:
+        logger.error(f"Error al configurar el cliente de Spotify: {str(e)}")
+        sys.exit(1)
+    
+    return app
+
+app = create_app()
 
 @app.route('/')
 def index():
@@ -105,20 +130,35 @@ def list_resources():
 @app.route('/mcp/call', methods=['POST'])
 def call_resource():
     """Endpoint que maneja las llamadas a los recursos MCP."""
-    if not request.is_json:
-        return jsonify({"error": "Se esperaba un JSON"}), 400
-    
-    data = request.get_json()
-    resource_name = data.get('name')
-    parameters = data.get('parameters', {})
-    
-    if not resource_name:
-        return jsonify({"error": "El campo 'name' es requerido"}), 400
-    
-    # Generar un ID de solicitud único
-    request_id = str(uuid.uuid4())
-    
     try:
+        if not request.is_json:
+            return jsonify({"error": "Se esperaba un JSON"}), 400
+        
+        data = request.get_json()
+        logger.info(f"Llamada a recurso MCP: {data}")
+        
+        resource_name = data.get('name')
+        parameters = data.get('parameters', {})
+        
+        if not resource_name:
+            return jsonify({
+                "error": "El campo 'name' es requerido",
+                "request_id": str(uuid.uuid4())
+            }), 400
+        
+        # Generar un ID de solicitud único
+        request_id = str(uuid.uuid4())
+        
+        # Obtener instancia de Spotify
+        sp = app.config.get('spotify')
+        if not sp:
+            logger.error("Cliente de Spotify no configurado")
+            return jsonify({
+                "error": "Error en la configuración del servidor",
+                "request_id": request_id
+            }), 500
+        
+        # Procesar el recurso solicitado
         if resource_name == 'play_song':
             query = parameters.get('query')
             if not query:
@@ -217,4 +257,6 @@ def legacy_endpoints(path):
     }), 404
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8080)
+    port = int(os.environ.get('PORT', 8080))
+    logger.info(f"Iniciando servidor en el puerto {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
